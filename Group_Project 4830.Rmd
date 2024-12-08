@@ -1,0 +1,583 @@
+---
+title: "Group Project_4830"
+output: html_document
+date: "2024-11-11"
+---
+
+```{r}
+#Load libraries
+library(tidyverse)
+library(kableExtra)
+library(rsample)
+library(recipes)
+library(parsnip)
+library(yardstick)
+library(viridisLite)
+library(GGally)
+```
+
+
+```{r}
+Heart<-read.csv("processed.cleveland.data")
+
+View(Heart)
+```
+
+```{r}
+names <- c("Age",
+           "Sex",
+           "Chest_Pain_Type",
+           "Resting_Blood_Pressure",
+           "Serum_Cholesterol",
+           "Fasting_Blood_Sugar",
+           "Resting_ECG",
+           "Max_Heart_Rate_Achieved",
+           "Exercise_Induced_Angina",
+           "ST_Depression_Exercise",
+           "Peak_Exercise_ST_Segment",
+           "Num_Major_Vessels_Flouro",
+           "Thalassemia",
+           "Diagnosis_Heart_Disease")
+```
+
+```{r}
+head(Heart)
+```
+
+```{r}
+colnames(Heart) <- names
+View(Heart)
+```
+
+```{r}
+nrow(Heart)
+```
+
+```{r}
+missing_values <- sapply(Heart, function(x) sum(is.na(x)))
+
+print(missing_values)
+```
+
+```{r}
+Heart[Heart == '?'] <- NA
+View(Heart)
+```
+
+
+```{r}
+missing_values <- sapply(Heart, function(x) sum(is.na(x)))
+
+print(missing_values)
+```
+
+
+```{r}
+Heart <- na.omit(Heart)
+nrow(Heart)
+```
+
+```{r}
+#Determine the number of values in each level of dependent variable
+Heart %>% 
+  drop_na() %>%
+  group_by(Diagnosis_Heart_Disease) %>%
+  count() %>% 
+  ungroup() %>%
+  kable(align = rep("c", 2)) %>% kable_styling("full_width" = F)
+```
+
+Since any value above 0 in ‘Diagnosis_Heart_Disease’ (column 14) indicates the presence of heart disease, we can lump all levels > 0 together so the classification predictions are binary – Yes or No (1 or 0).
+```{r}
+Heart$Diagnosis_Heart_Disease <- ifelse(Heart$Diagnosis_Heart_Disease > 0, 1, 0)
+
+head(Heart)
+```
+```{r}
+unique(Heart$Num_Major_Vessels_Flouro)
+```
+
+
+Gender distribution of the variables.
+
+```{r}
+categorical_data <- Heart %>% 
+  mutate(Sex = if_else(Sex == 1, "MALE", "FEMALE"),
+         Exercise_Induced_Angina = if_else(Exercise_Induced_Angina == 1, "YES", "NO"),
+         Chest_Pain_Type = if_else(Chest_Pain_Type == 1, "TYPICAL ANGINA",
+                                    if_else(Chest_Pain_Type == 2, "ATYPICAL ANGINA",
+                                            if_else(Chest_Pain_Type == 3, "NON-ANGINAL PAIN", "ASYMPTOMATIC"))),
+         Resting_ECG = if_else(Resting_ECG == 0, "NORMAL",
+                               if_else(Resting_ECG == 1, "ABNORMALITY", "PROBABLE OR DEFINITE")),
+         Num_Major_Vessels_Flouro = as.factor(Num_Major_Vessels_Flouro),
+         Thalassemia = as.factor(Thalassemia),
+         Diagnosis_Heart_Disease = if_else(Diagnosis_Heart_Disease == 1, "YES", "NO"),
+         Age_Group = case_when(
+           Age < 30 ~ "Under 30",
+           Age >= 30 & Age < 50 ~ "30-49",
+           Age >= 50 & Age < 70 ~ "50-69",
+           Age >= 70 ~ "70 and above"
+         )
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  dplyr::select(Diagnosis_Heart_Disease, Sex, Exercise_Induced_Angina, Chest_Pain_Type, Resting_ECG, Num_Major_Vessels_Flouro, Thalassemia, Age_Group)
+```
+
+```{r}
+summary(categorical_data)
+```
+
+```{r}
+str(Heart)
+```
+
+
+```{r}
+for (pair in colnames(categorical_data)) {
+  
+  tbl <- with(categorical_data, table(categorical_data[['Sex']], categorical_data[[pair]]))
+  
+  barplot(tbl, beside = TRUE, 
+          col = c("skyblue", "salmon"), 
+          main = paste("Comparison of", pair, "by", 'Sex'), 
+          xlab = 'Sex', 
+          ylab = "Count")
+  
+  legend("topright", legend = c('Female','Male'), fill = c("skyblue", "salmon"))
+  }
+```
+
+In the dataset, the number of males are more than female around 200 patients are male and around 100 is only female.
+
+```{r}
+for (pair in colnames(categorical_data)) {
+  
+  tbl <- with(categorical_data, table(categorical_data[['Diagnosis_Heart_Disease']], categorical_data[[pair]]))
+  
+  barplot(tbl, beside = TRUE, 
+          col = c("skyblue", "salmon"), 
+          main = paste("Comparison of", pair, "by", 'Sex'), 
+          xlab = 'Sex', 
+          ylab = "Count", cex.names = 0.8)
+  
+  legend("topright", legend = c('0','1'), fill = c("skyblue", "salmon"))
+  }
+```
+
+
+Density plots of the numerical variables.
+
+```{r}
+# Loop through each numerical variable for density plots
+numerical_var = c('ST_Depression_Exercise','Age','Max_Heart_Rate_Achieved','Serum_Cholesterol','Resting_Blood_Pressure')
+for (var in numerical_var) {
+  p <- ggplot(Heart, aes_string(x = var, color = "factor(Diagnosis_Heart_Disease)")) +
+    geom_density(alpha = 0.6, size = 1) +
+    labs(title = paste("Density of", var, "by Heart Disease Diagnosis"),
+         x = var,
+         y = "Density",
+         color = "Heart Disease") +
+    theme_minimal()
+    print(p)
+}
+```
+
+Boxplot
+
+```{r}
+numerical_data = Heart[numerical_var]
+boxplot(numerical_data, cex.axis=0.5)
+```
+
+
+
+```{r}
+for (var in numerical_var) {
+  p <- ggplot(Heart, aes_string(x = as.factor(Heart$Sex), y = var, fill = as.factor(Heart$Sex))) +
+    geom_boxplot(outlier.color = "red", outlier.shape = 16) +
+    labs(title = paste("Boxplot of", var, "by Heart Disease Diagnosis"),
+         x = "Gender",
+         y = var) +
+    theme_minimal()
+    print(p)
+}
+
+```
+
+```{r}
+for (var in numerical_var) {
+  p <- ggplot(Heart, aes_string(x = as.factor(Heart$Diagnosis_Heart_Disease), y = var, fill = as.factor(Heart$Diagnosis_Heart_Disease))) +
+    geom_boxplot(outlier.color = "red", outlier.shape = 16) +
+    labs(title = paste("Boxplot of", var, "by Heart Disease Diagnosis"),
+         x = "Heart Diagnosis",
+         y = var) +
+    theme_minimal()
+    print(p)
+}
+```
+
+
+Scatterplot
+
+```{r}
+pairs(numerical_data)
+```
+
+Correlation
+
+```{r}
+library(corrplot)
+
+#Using the cor function to find the correlation between the variables
+cor_data = cor(numerical_data)
+ 
+print("Correlation matrix")
+print(cor_data)
+```
+
+
+```{r}
+#correlation matrix 
+corrplot(cor_data, method="number", cl.cex = 0.5, tl.col = "blue", tl.cex = 0.5)
+```
+
+
+##### Getting the numerical variables from the data + scaling
+```{r}
+heart_numerical <- scale(numerical_data)
+```
+
+
+### PCA
+
+```{r}
+heart.pca <- prcomp(heart_numerical)
+
+#Eigen vectors or weights
+
+heart.pca
+```
+
+
+
+```{r}
+library(factoextra)
+fviz_eig(heart.pca)  ## use the function on the pca object
+```
+
+
+
+```{r}
+library(factoextra)
+fviz_pca_biplot(heart.pca, repel = TRUE,
+                col.var = "steelblue", # Variables color
+                col.ind = "coral")
+```
+
+```{r}
+#pca loadings
+pca_loadings <- heart.pca$rotation
+head(pca_loadings)
+```
+
+```{r}
+#PCA scores
+pca_scores <- heart.pca$x
+head(pca_scores)
+
+```
+
+PCA prediction 
+
+# Factor Analysis
+
+#### Factor Analysis
+
+#### 1. Check data - Correlations and Sampling Adequacy
+
+###Bartlett Test for correlations
+
+#### H_0: The correlation matrix is the same as the identity matrix
+#### H_a: The correlation matrix is different from the identity matrix.
+
+```{r}
+head(heart_numerical)
+```
+
+```{r}
+#run EFA using psych
+library(psych)
+library(GPArotation)
+correl <- cor(heart_numerical)
+cortest.bartlett(correl, n = nrow(heart_numerical))
+```
+#### Since the p-value is less than 0.05, we reject the null hypothesis and conclude that there are significant correlations in the data set.
+
+#### KMO Test for sampling adequacy ( Significant factors in the sampled data)
+#### H_0: There are no significant factors in the data set
+#### H_a: There are significant factors in the data set.
+
+```{r}
+km = KMO(correl)
+km$MSA
+```
+
+#### Since the overall MSA value is greater than 0.5, we reject the null hypothesis and conclude that there are significant factors in the data set.
+
+#### We have checked the data set and it looks like we can identify some significant factors in the data set. We can now go ahead to perform the factor analysis
+
+#### Load the needed packages
+```{r}
+library(psych)
+library(GPArotation)
+```
+
+#### What number of factors do we fit our factor analysis for? We will use the parallel analysis to determine the number of factors. 
+
+#### Extraction method: We will use the maximum likelihood method 
+#### Rotations: We will try out all 3 rotations.
+
+#### Number of Factors
+```{r}
+nofactors <- fa.parallel(numerical_data, fm = "ml", fa = "fa")
+```
+#### The parallel analysis suggests that we have 3 significant factors in our data set.
+
+```{r}
+nofactors$fa.values
+```
+
+###Kaiser Criterion
+```{r}
+nofactors$fa.values[nofactors$fa.values>0.7]
+```
+
+#### Factor Analysis
+
+```{r}
+df_fa <- fa(heart_numerical, nfactors = 3, fm = "ml", rotate = "none")
+
+df_fa$loadings
+
+fa.diagram(df_fa)
+```
+
+```{r}
+#### Varimax rotations
+df_fa1 <- fa(heart_numerical, nfactors = 3, fm = "ml", rotate = "varimax")
+
+df_fa1$loadings
+```
+
+```{r}
+fa.diagram(df_fa1)
+```
+
+###Oblique
+```{r}
+df_fa2 <- fa(heart_numerical, nfactors = 3,fm="ml", rotate = "oblimin")
+
+df_fa2
+```
+
+```{r}
+fa.diagram(df_fa2)
+```
+
+# MCA
+
+
+```{r}
+head(categorical_data)
+```
+
+```{r}
+str(categorical_data)
+```
+
+
+```{r}
+# Test for Sex and Diagnosis_Heart_Disease
+contingency_sex <- table(categorical_data$Diagnosis_Heart_Disease, categorical_data$Sex)
+chi_sex <- chisq.test(contingency_sex)
+
+# Print null and alternative hypotheses for Sex and Diagnosis_Heart_Disease
+print("Null Hypothesis (H₀): There is no association between Sex and Diagnosis_Heart_Disease (independent).")
+print("Alternative Hypothesis (H₁): There is an association between Sex and Diagnosis_Heart_Disease (dependent).")
+print("Chi-square result for Sex and Diagnosis_Heart_Disease:")
+print(chi_sex)
+
+# Conclusion based on p-value
+if (chi_sex$p.value < 0.05) {
+  print("Conclusion: Reject the null hypothesis. There is a significant association between Sex and Diagnosis_Heart_Disease.")
+} else {
+  print("Conclusion: Fail to reject the null hypothesis. There is no significant association between Sex and Diagnosis_Heart_Disease.")
+}
+
+# Test for Exercise_Induced_Angina and Diagnosis_Heart_Disease
+contingency_angina <- table(categorical_data$Diagnosis_Heart_Disease, categorical_data$Exercise_Induced_Angina)
+chi_angina <- chisq.test(contingency_angina)
+
+# Print null and alternative hypotheses for Exercise_Induced_Angina and Diagnosis_Heart_Disease
+print("Null Hypothesis (H₀): There is no association between Exercise_Induced_Angina and Diagnosis_Heart_Disease (independent).")
+print("Alternative Hypothesis (H₁): There is an association between Exercise_Induced_Angina and Diagnosis_Heart_Disease (dependent).")
+print("Chi-square result for Exercise_Induced_Angina and Diagnosis_Heart_Disease:")
+print(chi_angina)
+
+# Conclusion based on p-value
+if (chi_angina$p.value < 0.05) {
+  print("Conclusion: Reject the null hypothesis. There is a significant association between Exercise_Induced_Angina and Diagnosis_Heart_Disease.")
+} else {
+  print("Conclusion: Fail to reject the null hypothesis. There is no significant association between Exercise_Induced_Angina and Diagnosis_Heart_Disease.")
+}
+
+# Test for Chest_Pain_Type and Diagnosis_Heart_Disease
+contingency_chest_pain <- table(categorical_data$Diagnosis_Heart_Disease, categorical_data$Chest_Pain_Type)
+chi_chest_pain <- chisq.test(contingency_chest_pain)
+
+# Print null and alternative hypotheses for Chest_Pain_Type and Diagnosis_Heart_Disease
+print("Null Hypothesis (H₀): There is no association between Chest_Pain_Type and Diagnosis_Heart_Disease (independent).")
+print("Alternative Hypothesis (H₁): There is an association between Chest_Pain_Type and Diagnosis_Heart_Disease (dependent).")
+print("Chi-square result for Chest_Pain_Type and Diagnosis_Heart_Disease:")
+print(chi_chest_pain)
+
+# Conclusion based on p-value
+if (chi_chest_pain$p.value < 0.05) {
+  print("Conclusion: Reject the null hypothesis. There is a significant association between Chest_Pain_Type and Diagnosis_Heart_Disease.")
+} else {
+  print("Conclusion: Fail to reject the null hypothesis. There is no significant association between Chest_Pain_Type and Diagnosis_Heart_Disease.")
+}
+
+# Test for Resting_ECG and Diagnosis_Heart_Disease
+contingency_ecg <- table(categorical_data$Diagnosis_Heart_Disease, categorical_data$Resting_ECG)
+chi_ecg <- chisq.test(contingency_ecg)
+
+# Print null and alternative hypotheses for Resting_ECG and Diagnosis_Heart_Disease
+print("Null Hypothesis (H₀): There is no association between Resting_ECG and Diagnosis_Heart_Disease (independent).")
+print("Alternative Hypothesis (H₁): There is an association between Resting_ECG and Diagnosis_Heart_Disease (dependent).")
+print("Chi-square result for Resting_ECG and Diagnosis_Heart_Disease:")
+print(chi_ecg)
+
+# Conclusion based on p-value
+if (chi_ecg$p.value < 0.05) {
+  print("Conclusion: Reject the null hypothesis. There is a significant association between Resting_ECG and Diagnosis_Heart_Disease.")
+} else {
+  print("Conclusion: Fail to reject the null hypothesis. There is no significant association between Resting_ECG and Diagnosis_Heart_Disease.")
+}
+
+# Test for Num_Major_Vessels_Flouro and Diagnosis_Heart_Disease
+contingency_vessels <- table(categorical_data$Diagnosis_Heart_Disease, categorical_data$Num_Major_Vessels_Flouro)
+chi_vessels <- chisq.test(contingency_vessels)
+
+# Print null and alternative hypotheses for Num_Major_Vessels_Flouro and Diagnosis_Heart_Disease
+print("Null Hypothesis (H₀): There is no association between Num_Major_Vessels_Flouro and Diagnosis_Heart_Disease (independent).")
+print("Alternative Hypothesis (H₁): There is an association between Num_Major_Vessels_Flouro and Diagnosis_Heart_Disease (dependent).")
+print("Chi-square result for Num_Major_Vessels_Flouro and Diagnosis_Heart_Disease:")
+print(chi_vessels)
+
+# Conclusion based on p-value
+if (chi_vessels$p.value < 0.05) {
+  print("Conclusion: Reject the null hypothesis. There is a significant association between Num_Major_Vessels_Flouro and Diagnosis_Heart_Disease.")
+} else {
+  print("Conclusion: Fail to reject the null hypothesis. There is no significant association between Num_Major_Vessels_Flouro and Diagnosis_Heart_Disease.")
+}
+
+# Test for Thalassemia and Diagnosis_Heart_Disease
+contingency_thalassemia <- table(categorical_data$Diagnosis_Heart_Disease, categorical_data$Thalassemia)
+chi_thalassemia <- chisq.test(contingency_thalassemia)
+
+# Print null and alternative hypotheses for Thalassemia and Diagnosis_Heart_Disease
+print("Null Hypothesis (H₀): There is no association between Thalassemia and Diagnosis_Heart_Disease (independent).")
+print("Alternative Hypothesis (H₁): There is an association between Thalassemia and Diagnosis_Heart_Disease (dependent).")
+print("Chi-square result for Thalassemia and Diagnosis_Heart_Disease:")
+print(chi_thalassemia)
+
+# Conclusion based on p-value
+if (chi_thalassemia$p.value < 0.05) {
+  print("Conclusion: Reject the null hypothesis. There is a significant association between Thalassemia and Diagnosis_Heart_Disease.")
+} else {
+  print("Conclusion: Fail to reject the null hypothesis. There is no significant association between Thalassemia and Diagnosis_Heart_Disease.")
+}
+
+# Create contingency table for Age Group and Diagnosis_Heart_Disease
+contingency_age_group <- table(categorical_data$Diagnosis_Heart_Disease, categorical_data$Age_Group)
+
+# Perform Chi-square test
+chi_age_group <- chisq.test(contingency_age_group)
+
+# Print null and alternative hypotheses for Age Group and Diagnosis_Heart_Disease
+print("Null Hypothesis (H₀): There is no association between Age Group and Diagnosis_Heart_Disease (independent).")
+print("Alternative Hypothesis (H₁): There is an association between Age Group and Diagnosis_Heart_Disease (dependent).")
+
+# Print Chi-square result for Age Group and Diagnosis_Heart_Disease
+print("Chi-square result for Age Group and Diagnosis_Heart_Disease:")
+print(chi_age_group)
+
+# Conclusion based on p-value
+if (chi_age_group$p.value < 0.05) {
+  print("Conclusion: Reject the null hypothesis. There is a significant association between Age Group and Diagnosis_Heart_Disease.")
+} else {
+  print("Conclusion: Fail to reject the null hypothesis. There is no significant association between Age Group and Diagnosis_Heart_Disease.")
+}
+```
+
+
+```{r}
+library(FactoMineR)
+
+# apply MCA
+mca1 = MCA(categorical_data, graph = FALSE)
+
+# table of eigenvalues
+mca1$eig
+```
+```{r}
+# column coordinates
+mca1$var$coord
+```
+```{r}
+# row coordinates
+mca1$ind$coord
+```
+
+```{r}
+# number of categories per variable
+cats = apply(categorical_data, 2, function(x) nlevels(as.factor(x)))
+cats
+```
+
+```{r}
+library(ggplot2)
+
+# Data frames for ggplot
+mca1_vars_df <- data.frame(mca1$var$coord, Variable = rep(names(cats), cats))
+mca1_obs_df <- data.frame(mca1$ind$coord)
+
+# Plot of variable categories
+ggplot(data = mca1_vars_df, aes(x = Dim.1, y = Dim.2, label = rownames(mca1_vars_df))) +
+  geom_hline(yintercept = 0, colour = "gray70") + 
+  geom_vline(xintercept = 0, colour = "gray70") +
+  geom_text(aes(colour = Variable), size = 3, check_overlap = TRUE) +  # Adjusted size and added overlap check
+  ggtitle("MCA plot of variables") +
+  theme_minimal() +  # Clean background
+  theme(
+    plot.title = element_text(size = 14, hjust = 0.5),  # Centered title
+    axis.title = element_text(size = 12),  # Axis labels
+    axis.text = element_text(size = 10)  # Axis text
+  ) +
+  xlim(c(-1, 1)) +  # Adjust axis limits for better view
+  ylim(c(-1, 1))  # Adjust axis limits for better view
+```
+
+```{r}
+# MCA plot of observations and categories
+ggplot(data = mca1_obs_df, aes(x = Dim.1, y = Dim.2)) + geom_hline(yintercept = 0, 
+    colour = "gray70") + geom_vline(xintercept = 0, colour = "gray70") + geom_point(colour = "gray50", 
+    alpha = 0.7) + geom_density2d(colour = "gray80") + geom_text(data = mca1_vars_df, 
+    aes(x = Dim.1, y = Dim.2, label = rownames(mca1_vars_df), colour = Variable)) + 
+    ggtitle("MCA plot of variables using R package FactoMineR") + scale_colour_discrete(name = "Variable")
+```
+```{r}
+# default biplot in FactoMineR
+plot(mca1)
+```
