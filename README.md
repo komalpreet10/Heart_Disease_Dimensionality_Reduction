@@ -3,12 +3,6 @@ This repository applies PCA, MCA, MDA, and stepwise regression to the Cleveland 
 
 # Dimensionality Reduction Techniques for Improved Diagnosis of Heart Disease
 
-## Group Members
-- Shwetha
-- Teshani
-- Komalpreet
-- Rachel
-
 ## Objective
 The goal of this study is to explore the Heart Disease Dataset and answer the following questions:
 
